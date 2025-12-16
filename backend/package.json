@@ -1,0 +1,14 @@
+{
+  "name": "powertrack-backend-simulator",
+  "version": "1.0.0",
+  "description": "Backend service for generating solar telemetry, persisting to SQLite, and publishing via MQTT.",
+  "main": "simulator.js",
+  "scripts": {
+    "start": "node simulator.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.3.5",
+    "sqlite3": "^5.1.7",
+    "dotenv": "^16.4.1"
+  }
+}
