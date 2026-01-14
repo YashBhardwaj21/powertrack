@@ -17,7 +17,8 @@ interface ErrorBoundaryState {
 }
 
 // Simple Error Boundary to catch render crashes
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+// Fix: Use the named import 'Component' directly to resolve inheritance issues in TypeScript
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     state: ErrorBoundaryState = { hasError: false, error: null };
 
     static getDerivedStateFromError(error: Error): ErrorBoundaryState {
@@ -52,6 +53,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             );
         }
 
+        // Fix: 'props' is now correctly recognized as a property of the Component class
         return this.props.children;
     }
 }

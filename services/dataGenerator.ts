@@ -4,12 +4,21 @@ import { SCHOOL_CONFIGS, INITIAL_METADATA, BANDUNG_CENTER, SIMULATION_CONFIG, FA
 
 const WEATHER_OPTS: WeatherCondition[] = ["sunny", "partly_cloudy", "cloudy", "rainy"];
 
+// --- Deterministic RNG ---
+let seed = SIMULATION_CONFIG.seed;
+const seededRandom = (): number => {
+    const a = 1664525;
+    const c = 1013904223;
+    const m = 4294967296; 
+    seed = (a * seed + c) % m;
+    return seed / m;
+};
+
 // --- Helper Functions ---
 
 const getWeightedWeather = (month: number): WeatherCondition => {
-    // West Java Seasonality
     const isDrySeason = month >= 4 && month <= 8;
-    const r = Math.random();
+    const r = seededRandom();
     const weights = isDrySeason ? [0.4, 0.4, 0.15, 0.05] : [0.1, 0.3, 0.4, 0.2]; 
 
     let sum = 0;
@@ -20,7 +29,7 @@ const getWeightedWeather = (month: number): WeatherCondition => {
     return 'partly_cloudy';
 };
 
-const getRandomCoord = (base: number) => base + (Math.random() - 0.5) * 0.06;
+const getRandomCoord = (base: number) => base + (seededRandom() - 0.5) * 0.06;
 
 const generateSchools = (): School[] => {
     return SCHOOL_CONFIGS.map(cfg => ({
@@ -35,7 +44,7 @@ const generateSchools = (): School[] => {
         },
         principal_name: "Principal Name", 
         contact_email: `admin@${cfg.id.toLowerCase()}.sch.id`,
-        student_count: Math.floor(Math.random() * 800) + 200,
+        student_count: Math.floor(seededRandom() * 800) + 200,
         total_capacity_kwp: cfg.capacity,
         installation_date: "2023-01-15"
     }));
@@ -62,42 +71,41 @@ const generateHistoricalData = (schools: School[]): { history: HistoricalData[],
 
         schools.forEach(school => {
             let weather = baseWeather;
-            if (Math.random() > 0.7) weather = getWeightedWeather(month);
+            if (seededRandom() > 0.7) weather = getWeightedWeather(month);
 
-            const baselineIrrFactor = SIMULATION_CONFIG.irradiance_factors[weather];
-            const baselineSunHours = SIMULATION_CONFIG.base_sun_hours * baselineIrrFactor;
-            const baselinePR = 0.80; 
-            const predictedEnergy = Number((school.total_capacity_kwp * baselineSunHours * baselinePR).toFixed(2));
+            const irrFactor = SIMULATION_CONFIG.irradiance_factors[weather];
+            const baselineSunHours = SIMULATION_CONFIG.base_sun_hours * irrFactor;
+            const expectedPR = 0.75;
 
-            let actualIrrFactor = baselineIrrFactor * (0.9 + Math.random() * 0.2);
+            const predictedEnergy = Number((school.total_capacity_kwp * baselineSunHours * expectedPR).toFixed(2));
+            const noise = 1 + (seededRandom() - 0.5) * 0.06; 
             const seasonalTempFactor = (month >= 4 && month <= 8) ? -0.02 : 0.01; 
-            let actualPR = 0.75 + seasonalTempFactor + Math.random() * 0.08; 
+            let actualPR = expectedPR + seasonalTempFactor; 
 
             let isFaulty = false;
-            if (Math.random() < 0.02) {
-                 actualPR *= 0.6; 
+            if (seededRandom() < 0.002) {
+                 actualPR *= 0.5; 
                  isFaulty = true;
             }
 
-            const actualEnergy = Number((school.total_capacity_kwp * baselineSunHours * actualIrrFactor * (actualPR/0.8)).toFixed(2));
-            const peakPower = Number((school.total_capacity_kwp * actualIrrFactor * SIMULATION_CONFIG.inverter_efficiency).toFixed(2));
+            const actualEnergy = Number((school.total_capacity_kwp * baselineSunHours * actualPR * noise).toFixed(2));
+            const peakPower = Number((school.total_capacity_kwp * irrFactor * SIMULATION_CONFIG.inverter_efficiency).toFixed(2));
             const savings = Math.floor(actualEnergy * INITIAL_METADATA.electricity_rate_idr);
             const co2 = Number((actualEnergy * INITIAL_METADATA.carbon_intensity_kg_per_kwh).toFixed(2));
             
             const residual = predictedEnergy - actualEnergy;
             const absResidual = Math.abs(residual);
             const percentageError = actualEnergy > 0 ? absResidual / actualEnergy : 0;
-            
-            allResiduals.push(absResidual);
-            allActuals.push(actualEnergy);
-            if (actualEnergy > 0) allPercentageErrors.push(percentageError);
-
             const modelFlaggedAnomaly = absResidual > (predictedEnergy * 0.25);
-            const actualAnomaly = isFaulty || actualPR < 0.70;
+            const actualAnomaly = isFaulty || actualPR < 0.55;
 
             if (modelFlaggedAnomaly && actualAnomaly) truePositives++;
             else if (modelFlaggedAnomaly && !actualAnomaly) falsePositives++;
             else if (!modelFlaggedAnomaly && actualAnomaly) falseNegatives++;
+
+            allResiduals.push(absResidual);
+            allActuals.push(actualEnergy);
+            if (actualEnergy > 0) allPercentageErrors.push(percentageError);
 
             history.push({
                 record_id: `${school.school_id}_${dateStr}`,
@@ -122,9 +130,9 @@ const generateHistoricalData = (schools: School[]): { history: HistoricalData[],
     const mse = allResiduals.reduce((a, b) => a + (b * b), 0) / n;
     const rmse = Math.sqrt(mse);
 
-    const precision = truePositives / (truePositives + falsePositives) || 0;
-    const recall = truePositives / (truePositives + falseNegatives) || 0;
-    const f1 = 2 * ((precision * recall) / (precision + recall)) || 0;
+    const precision = (truePositives + falsePositives) > 0 ? truePositives / (truePositives + falsePositives) : 1;
+    const recall = (truePositives + falseNegatives) > 0 ? truePositives / (truePositives + falseNegatives) : 0;
+    const f1 = (precision + recall) > 0 ? 2 * ((precision * recall) / (precision + recall)) : 0;
 
     const metrics: ModelMetrics = {
         model_name: "Hybrid-Physics-v2.1",
@@ -135,7 +143,7 @@ const generateHistoricalData = (schools: School[]): { history: HistoricalData[],
         mape: Number(mape.toFixed(1)),
         mad: Number(mad.toFixed(2)),
         anomaly_detection: {
-            method: "IsolationForest (0.05 contam) + EWMA",
+            method: "IsolationForest (0.01 contam) + EWMA",
             total_anomalies_detected: truePositives + falsePositives,
             precision: Number(precision.toFixed(2)),
             recall: Number(recall.toFixed(2)),
@@ -147,25 +155,15 @@ const generateHistoricalData = (schools: School[]): { history: HistoricalData[],
     return { history, metrics };
 };
 
-// --- Financial & Community Calcs ---
 const calculateFinancials = (schools: School[], history: HistoricalData[]): FinancialStats => {
-    // Assumptions:
-    // CAPEX ~ 15,000,000 IDR per kWp (Standard Indonesian Solar Pricing)
     const CAPEX_PER_KWP = 15000000; 
-    
     const totalCapacity = schools.reduce((sum, s) => sum + s.total_capacity_kwp, 0);
     const totalCapex = totalCapacity * CAPEX_PER_KWP;
-    
     const totalSavings = history.reduce((sum, h) => sum + h.savings_idr, 0);
-    // Project annual based on historical average
     const dailyAvg = totalSavings / 365;
-    const annualSavings = dailyAvg * 365; // Simple projection
-    
+    const annualSavings = dailyAvg * 365;
     const yearsToPayback = annualSavings > 0 ? totalCapex / annualSavings : 0;
     const progress = (totalSavings / totalCapex) * 100;
-
-    // LCOE (Simplified): (Capex + O&M) / Lifetime Energy
-    // Assuming 20 year life, O&M 1% of Capex/yr
     const lifetimeYears = 20;
     const totalLifecycleCost = totalCapex * 1.2; 
     const estimatedLifetimeGen = (totalSavings / INITIAL_METADATA.electricity_rate_idr) * lifetimeYears;
@@ -177,29 +175,26 @@ const calculateFinancials = (schools: School[], history: HistoricalData[]): Fina
         payback_progress_percent: progress,
         payback_years: Number(yearsToPayback.toFixed(1)),
         lcoe_idr_per_kwh: Number(lcoe.toFixed(0)),
-        irr_percent: 11.2 // Simulated internal rate of return
+        irr_percent: 11.2
     };
 };
 
 const calculateCommunityStats = (telemetry: Telemetry[]): CommunityStats => {
     let surplus = 0;
     let deficit = 0;
-    
     telemetry.forEach(t => {
         if (t.grid_export_kw > 0) surplus += t.grid_export_kw;
         if (t.grid_import_kw > 0) deficit += t.grid_import_kw;
     });
-
     return {
         total_surplus_kw: Number(surplus.toFixed(1)),
         total_deficit_kw: Number(deficit.toFixed(1)),
         net_grid_flow_kw: Number((surplus - deficit).toFixed(1)),
         active_peers: telemetry.length,
-        sharing_potential_idr: Number((Math.min(surplus, deficit) * 200).toFixed(0)) // Simulated arbitrage value
+        sharing_potential_idr: Number((Math.min(surplus, deficit) * 200).toFixed(0))
     };
 };
 
-// --- Storage Stats ---
 const calculateStorageStats = (schools: School[]): StorageStats => {
     const schoolCount = schools.length;
     const RAW_RETENTION_DAYS = 30;
@@ -228,33 +223,41 @@ const calculateStorageStats = (schools: School[]): StorageStats => {
 let currentTelemetryState: Telemetry[] = [];
 let activeAlerts: Alert[] = [];
 
+// Allow external hydration of the state
+export const setSimulationState = (telemetry: Telemetry[]) => {
+    currentTelemetryState = telemetry;
+};
+
 export const initializeSimulation = (): DashboardData => {
     const schools = generateSchools();
     const { history, metrics } = generateHistoricalData(schools);
     const storageStats = calculateStorageStats(schools);
     const financialStats = calculateFinancials(schools, history);
     
-    currentTelemetryState = schools.map(school => ({
-        school_id: school.school_id,
-        timestamp: new Date().toISOString(),
-        ac_power_kw: 0,
-        daily_energy_kwh: 0,
-        total_energy_kwh: school.total_capacity_kwp * 1500,
-        irradiance_wm2: 0,
-        ac_voltage: 230,
-        ac_current: 0,
-        panel_temp_c: 25,
-        efficiency_percent: 95,
-        weather_condition: 'sunny',
-        performance_ratio: 0,
-        fault: 'none',
-        load_kw: 0,
-        grid_import_kw: 0,
-        grid_export_kw: 0,
-        self_consumption_percent: 0
-    }));
+    // Start with non-zero initial values so it looks live immediately
+    currentTelemetryState = schools.map(school => {
+        const initialPower = school.total_capacity_kwp * 0.4; // 40% capacity start
+        return {
+            school_id: school.school_id,
+            timestamp: new Date().toISOString(),
+            ac_power_kw: initialPower,
+            daily_energy_kwh: initialPower * 2, // Assume 2 hours of gen already
+            total_energy_kwh: school.total_capacity_kwp * 1500,
+            irradiance_wm2: 400,
+            ac_voltage: 230,
+            ac_current: (initialPower * 1000) / 230,
+            panel_temp_c: 32,
+            efficiency_percent: 95,
+            weather_condition: 'sunny',
+            performance_ratio: 82,
+            fault: 'none',
+            load_kw: school.total_capacity_kwp * 0.25,
+            grid_import_kw: 0,
+            grid_export_kw: initialPower - (school.total_capacity_kwp * 0.25),
+            self_consumption_percent: 40
+        };
+    });
 
-    // Initial calculation of community stats will be zero/nominal until first tick
     const communityStats = calculateCommunityStats(currentTelemetryState);
 
     return {
@@ -273,30 +276,55 @@ export const initializeSimulation = (): DashboardData => {
 export const tickSimulation = (schools: School[]): { telemetry: Telemetry[], alerts: Alert[], community: CommunityStats } => {
     const now = new Date();
     
+    // BUG FIX: If currentTelemetryState is empty (due to refresh), re-initialize it
+    if (currentTelemetryState.length === 0) {
+        currentTelemetryState = schools.map(school => ({
+            school_id: school.school_id,
+            timestamp: now.toISOString(),
+            ac_power_kw: 0,
+            daily_energy_kwh: 0,
+            total_energy_kwh: school.total_capacity_kwp * 1500,
+            irradiance_wm2: 0,
+            ac_voltage: 230,
+            ac_current: 0,
+            panel_temp_c: 25,
+            efficiency_percent: 95,
+            weather_condition: 'sunny',
+            performance_ratio: 0,
+            fault: 'none',
+            load_kw: 0,
+            grid_import_kw: 0,
+            grid_export_kw: 0,
+            self_consumption_percent: 0
+        }));
+    }
+
     currentTelemetryState = currentTelemetryState.map(prev => {
-        const school = schools.find(s => s.school_id === prev.school_id)!;
+        const school = schools.find(s => s.school_id === prev.school_id);
+        if (!school) return prev;
+        
         const capacity = school.total_capacity_kwp;
         
-        // --- Fault Logic ---
         let currentFault = prev.fault;
         if (currentFault === 'none') {
-            if (Math.random() < SIMULATION_CONFIG.fault_probability) {
-                 const rand = Math.random();
+            if (seededRandom() < SIMULATION_CONFIG.fault_probability) {
+                 const rand = seededRandom();
                  if (rand < 0.8) currentFault = 'comm_down';
                  else if (rand < 0.95) currentFault = 'underperf';
                  else currentFault = 'ground_fault';
             }
         } else {
             const healProb = currentFault === 'comm_down' ? 0.3 : 0.05;
-            if (Math.random() < healProb) currentFault = 'none';
+            if (seededRandom() < healProb) currentFault = 'none';
         }
 
-        // --- Weather & Physics ---
         let weather = prev.weather_condition;
-        if (Math.random() < 0.05) weather = "sunny"; 
+        if (seededRandom() < 0.05) {
+            weather = WEATHER_OPTS[Math.floor(seededRandom() * WEATHER_OPTS.length)];
+        }
         
         let irrFactor = SIMULATION_CONFIG.irradiance_factors[weather] || 0.95;
-        irrFactor += (Math.random() - 0.5) * 0.1;
+        irrFactor += (seededRandom() - 0.5) * 0.1;
         irrFactor = Math.max(0.1, Math.min(1.1, irrFactor));
 
         if (currentFault === 'comm_down') return { ...prev, timestamp: now.toISOString(), fault: currentFault };
@@ -309,18 +337,18 @@ export const tickSimulation = (schools: School[]): { telemetry: Telemetry[], ale
         const tempDerate = Math.max(0, 1 - tempLoss);
         const dcPower = capacity * irrFactor * tempDerate;
         const acPower = Math.max(0, dcPower * SIMULATION_CONFIG.inverter_efficiency);
-        const voltage = SIMULATION_CONFIG.voltage_base + (Math.random() - 0.5) * SIMULATION_CONFIG.voltage_variance;
+        const voltage = SIMULATION_CONFIG.voltage_base + (seededRandom() - 0.5) * SIMULATION_CONFIG.voltage_variance;
         const current = voltage > 0 ? (acPower * 1000) / voltage : 0;
-        const energyIncrement = (acPower * (SIMULATION_CONFIG.update_interval_ms / 1000)) / 3600;
+        
+        const dtHours = SIMULATION_CONFIG.update_interval_ms / (1000 * 3600);
+        const energyIncrement = acPower * dtHours;
+        
         const theoreticalMax = capacity * irrFactor;
         const livePR = theoreticalMax > 0 ? (acPower / theoreticalMax) * 100 : 0;
 
-        // --- Load & Grid Physics ---
-        // Base load is roughly 20-40% of capacity (lights, servers, etc)
-        // Peak load noise added
         const baseLoad = capacity * 0.3;
-        const loadNoise = (Math.random() - 0.5) * (capacity * 0.2);
-        const currentLoad = Math.max(0.5, baseLoad + loadNoise); // Always at least 0.5kW
+        const loadNoise = (seededRandom() - 0.5) * (capacity * 0.2);
+        const currentLoad = Math.max(0.5, baseLoad + loadNoise); 
 
         let gridImport = 0;
         let gridExport = 0;
@@ -365,10 +393,9 @@ export const tickSimulation = (schools: School[]): { telemetry: Telemetry[], ale
 
     currentTelemetryState.forEach(t => {
         const school = schools.find(s => s.school_id === t.school_id);
-        const alertId = `alert-${t.school_id}`;
         if (t.fault !== 'none' && !activeAlerts.find(a => a.school_id === t.school_id && a.type === t.fault)) {
             activeAlerts.push({
-                id: `${alertId}-${Date.now()}`,
+                id: `alert-${t.school_id}-${Date.now()}`,
                 school_id: t.school_id,
                 school_name: school?.name || 'Unknown',
                 type: t.fault,

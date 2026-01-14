@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Telemetry, School } from '../types';
-import { Gauge, Thermometer, Zap, Activity, Terminal, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Gauge, Thermometer, Zap, Activity, Terminal, ChevronUp, Cpu, Eye, EyeOff } from 'lucide-react';
+import { MODBUS_REGISTER_MAP, TRANSLATIONS } from '../constants';
+import { useDashboard } from '../context/DashboardContext';
 
 interface LiveTelemetryProps {
     data: Telemetry[];
@@ -9,19 +11,23 @@ interface LiveTelemetryProps {
 }
 
 export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) => {
+    const { locale } = useDashboard();
+    const t = TRANSLATIONS[locale];
+    
     // Auto-rotate through schools or pick highest power
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [showDebug, setShowDebug] = useState(false);
+    const [mode, setMode] = useState<'exec' | 'eng'>('exec');
 
     // Rotate selection every 10s if not interacting (simulated kiosk mode)
     useEffect(() => {
-        if (!showDebug) {
+        if (!showDebug && mode === 'exec') {
             const interval = setInterval(() => {
                 setSelectedIndex(prev => (prev + 1) % schools.length);
             }, 10000);
             return () => clearInterval(interval);
         }
-    }, [schools.length, showDebug]);
+    }, [schools.length, showDebug, mode]);
 
     const selectedSchool = schools[selectedIndex];
     const telemetry = data.find(d => d.school_id === selectedSchool.school_id);
@@ -46,9 +52,9 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
             {/* Background decoration */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full blur-[100px] opacity-10 pointer-events-none"></div>
 
-            <div className="flex justify-between items-start mb-6 relative z-10">
+            <div className="flex flex-col md:flex-row justify-between items-start mb-6 relative z-10 gap-4">
                 <div>
-                    <h2 className="text-lg font-medium text-slate-300">Live Hardware Telemetry</h2>
+                    <h2 className="text-lg font-medium text-slate-300">{t.live_telemetry}</h2>
                     <div className="flex items-center gap-2 mt-1">
                         <select 
                             value={selectedIndex}
@@ -66,25 +72,38 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                         )}
                     </div>
                 </div>
-                <div className="text-right">
-                    <p className="text-xs text-slate-400 font-mono">MSG_ID: {Date.now().toString().slice(-6)}</p>
-                    <div className="flex items-center justify-end gap-2 mt-1">
-                         <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 font-mono border border-slate-700">QoS: 1</span>
-                         <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-emerald-500 font-mono border border-slate-700">TLS: ON</span>
+                <div className="text-right flex flex-col items-end">
+                     {/* Toggle Mode */}
+                     <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 mb-2">
+                        <button 
+                            onClick={() => setMode('exec')}
+                            className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${mode === 'exec' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            {t.exec_view}
+                        </button>
+                         <button 
+                            onClick={() => setMode('eng')}
+                            className={`px-3 py-1 rounded-md text-xs font-medium transition-all flex items-center gap-1 ${mode === 'eng' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            <Cpu className="w-3 h-3" /> {t.eng_view}
+                        </button>
                     </div>
-                    <button 
-                        onClick={() => setShowDebug(!showDebug)}
-                        className="mt-2 text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors ml-auto"
-                    >
-                        {showDebug ? <ChevronUp className="w-3 h-3"/> : <Terminal className="w-3 h-3"/>}
-                        {showDebug ? 'Hide Payload' : 'View Raw MQTT'}
-                    </button>
+
+                    {mode === 'eng' && (
+                        <>
+                            <p className="text-xs text-slate-400 font-mono">MSG_ID: {Date.now().toString().slice(-6)}</p>
+                            <div className="flex items-center justify-end gap-2 mt-1">
+                                <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 font-mono border border-slate-700">QoS: 1</span>
+                                <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-emerald-500 font-mono border border-slate-700">TLS: ON</span>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
                 {/* AC Power Block */}
-                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 relative group">
                     <div className="flex items-center gap-2 text-blue-400 mb-2">
                         <Zap className="w-4 h-4" />
                         <span className="text-xs uppercase font-bold tracking-wider">AC Output</span>
@@ -93,10 +112,11 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                     <div className="w-full bg-slate-700 h-1 mt-2 rounded-full overflow-hidden">
                         <div className="bg-blue-500 h-full transition-all duration-500" style={{width: `${(telemetry.ac_power_kw / selectedSchool.total_capacity_kwp) * 100}%`}}></div>
                     </div>
+                    {mode === 'eng' && <div className="absolute top-2 right-2 text-[9px] text-slate-600 font-mono group-hover:text-blue-300">Reg: 40083</div>}
                 </div>
 
                 {/* Voltage/Current Block */}
-                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 relative group">
                     <div className="flex items-center gap-2 text-green-400 mb-2">
                         <Activity className="w-4 h-4" />
                         <span className="text-xs uppercase font-bold tracking-wider">Grid</span>
@@ -111,10 +131,11 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                         <span className="text-sm text-slate-400">A</span>
                         <span className="font-mono font-bold text-lg">{telemetry.ac_current.toFixed(1)}</span>
                     </div>
+                    {mode === 'eng' && <div className="absolute top-2 right-2 text-[9px] text-slate-600 font-mono group-hover:text-green-300">Reg: 40071</div>}
                 </div>
 
                 {/* Environment Block */}
-                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 relative group">
                     <div className="flex items-center gap-2 text-yellow-400 mb-2">
                         <Thermometer className="w-4 h-4" />
                         <span className="text-xs uppercase font-bold tracking-wider">Environment</span>
@@ -127,10 +148,11 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                         <span className="text-sm text-slate-400">Tmp.</span>
                         <span className="font-mono font-bold text-lg">{telemetry.panel_temp_c.toFixed(1)}°C</span>
                     </div>
+                    {mode === 'eng' && <div className="absolute top-2 right-2 text-[9px] text-slate-600 font-mono group-hover:text-yellow-300">Reg: 40107</div>}
                 </div>
 
                 {/* Efficiency Block */}
-                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 relative group">
                      <div className="flex items-center gap-2 text-purple-400 mb-2">
                         <Gauge className="w-4 h-4" />
                         <span className="text-xs uppercase font-bold tracking-wider">Performance</span>
@@ -143,25 +165,68 @@ export const LiveTelemetry: React.FC<LiveTelemetryProps> = ({ data, schools }) =
                         <span className="text-xs text-slate-400">Inv. Eff: </span>
                         <span className="text-sm font-mono text-white">{telemetry.efficiency_percent}%</span>
                     </div>
+                    {mode === 'eng' && <div className="absolute top-2 right-2 text-[9px] text-slate-600 font-mono group-hover:text-purple-300">Calc</div>}
                 </div>
             </div>
 
-            {/* Debug Payload View */}
-            {showDebug && (
-                <div className="mt-4 pt-4 border-t border-slate-700 animate-in slide-in-from-top-2 duration-200">
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                            <Terminal className="w-4 h-4 text-emerald-500" />
-                            <span className="text-xs font-mono text-emerald-400">INCOMING PACKET (TCP/8883)</span>
+            {/* Debug Payload View (Engineer Mode Only) */}
+            {mode === 'eng' && (
+                <div className="mt-4">
+                     <button 
+                        onClick={() => setShowDebug(!showDebug)}
+                        className="text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                        {showDebug ? <ChevronUp className="w-3 h-3"/> : <Terminal className="w-3 h-3"/>}
+                        {showDebug ? 'Hide Payload' : 'View Raw MQTT & Modbus Map'}
+                    </button>
+
+                    {showDebug && (
+                        <div className="mt-2 pt-4 border-t border-slate-700 animate-in slide-in-from-top-2 duration-200">
+                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <Terminal className="w-4 h-4 text-emerald-500" />
+                                            <span className="text-xs font-mono text-emerald-400">INCOMING PACKET (TCP/8883)</span>
+                                        </div>
+                                    </div>
+                                    <div className="bg-black/50 rounded-lg p-3 font-mono text-xs text-slate-300 overflow-x-auto border border-slate-800 h-48 custom-scrollbar">
+                                        <pre>{JSON.stringify(mqttPayload, null, 2)}</pre>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <Cpu className="w-4 h-4 text-purple-500" />
+                                            <span className="text-xs font-mono text-purple-400">SUNSPEC REGISTER MAP</span>
+                                        </div>
+                                    </div>
+                                    <div className="bg-black/50 rounded-lg p-3 font-mono text-xs text-slate-300 overflow-y-auto border border-slate-800 h-48 custom-scrollbar">
+                                        <table className="w-full text-left">
+                                            <thead>
+                                                <tr className="border-b border-slate-700 text-slate-500">
+                                                    <th className="pb-1">Reg</th>
+                                                    <th className="pb-1">Name</th>
+                                                    <th className="pb-1">Type</th>
+                                                    <th className="pb-1">Unit</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {Object.entries(MODBUS_REGISTER_MAP).map(([reg, meta]) => (
+                                                    <tr key={reg} className="border-b border-slate-800/50">
+                                                        <td className="py-1 text-purple-300">{reg}</td>
+                                                        <td className="py-1 text-slate-300">{meta.name}</td>
+                                                        <td className="py-1 text-slate-500">{meta.type}</td>
+                                                        <td className="py-1 text-slate-500">{'unit' in meta ? meta.unit : '-'}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                             </div>
                         </div>
-                        <span className="text-[10px] text-slate-500 font-mono">Topic: sites/{telemetry.school_id}/telemetry</span>
-                    </div>
-                    <div className="bg-black/50 rounded-lg p-3 font-mono text-xs text-slate-300 overflow-x-auto border border-slate-800 relative group">
-                        <pre>{JSON.stringify(mqttPayload, null, 2)}</pre>
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px]">JSON</span>
-                        </div>
-                    </div>
+                    )}
                 </div>
             )}
         </div>

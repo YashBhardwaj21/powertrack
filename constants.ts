@@ -25,6 +25,9 @@ export const INITIAL_METADATA = {
 };
 
 export const SIMULATION_CONFIG = {
+    // Determinism
+    seed: 12345, // Fixed seed for reproducible demos
+
     // West Java Solar Resource (Global Solar Atlas)
     base_sun_hours: 4.5, // kWh/m2/day median for Bandung
     
@@ -49,8 +52,8 @@ export const SIMULATION_CONFIG = {
     ambient_temp_base: 28, // Avg daytime temp Bandung (°C)
     
     // Fault Injection (Realistic Rates)
-    // 0.0001 per tick ~ once every 3-4 hours of simulation time per school
-    fault_probability: 0.0001, 
+    // 0.00002 per tick ~ once every 24-30 hours of simulation time per school
+    fault_probability: 0.00002, 
     update_interval_ms: 2000
 };
 
@@ -77,3 +80,55 @@ export const FAULT_LABELS: Record<string, string> = {
 };
 
 export const BANDUNG_CENTER = { lat: -6.9175, lng: 107.6191 };
+
+// SunSpec Modbus Map (Simulated)
+// Proves to hardware integrators we understand the registers
+export const MODBUS_REGISTER_MAP = {
+    40001: { name: 'C_SunSpec_ID', type: 'uint32', desc: 'SunSpec DID' },
+    40003: { name: 'C_Device_ID', type: 'uint16', desc: 'Inverter ID' },
+    40069: { name: 'AC_Current', type: 'float32', unit: 'A' },
+    40071: { name: 'AC_Voltage_Phase_A', type: 'float32', unit: 'V' },
+    40083: { name: 'AC_Power', type: 'float32', unit: 'W' },
+    40085: { name: 'AC_Frequency', type: 'float32', unit: 'Hz' },
+    40093: { name: 'Total_Energy_Wh', type: 'acc32', unit: 'Wh' },
+    40101: { name: 'DC_Amps', type: 'float32', unit: 'A' },
+    40103: { name: 'DC_Voltage', type: 'float32', unit: 'V' },
+    40105: { name: 'DC_Power', type: 'float32', unit: 'W' },
+    40107: { name: 'Cabinet_Temp', type: 'float32', unit: 'C' }
+};
+
+// Localization Dictionary
+export const TRANSLATIONS: Record<string, Record<string, string>> = {
+    en: {
+        dashboard: "Dashboard",
+        schools: "Schools",
+        analytics: "Analytics",
+        total_power: "Total Power Generated",
+        daily_energy: "Daily Energy Production",
+        savings: "Est. Daily Savings",
+        co2: "CO₂ Avoided Today",
+        live_telemetry: "Live Hardware Telemetry",
+        exec_view: "Executive View",
+        eng_view: "Engineering View",
+        status_online: "Online",
+        status_fault: "Fault",
+        grid_export: "Grid Export",
+        grid_import: "Grid Import"
+    },
+    id: {
+        dashboard: "Dasbor Operasional",
+        schools: "Daftar Sekolah",
+        analytics: "Analisis Data",
+        total_power: "Total Daya Dihasilkan",
+        daily_energy: "Produksi Energi Harian",
+        savings: "Est. Penghematan Harian",
+        co2: "CO₂ Dihindari Hari Ini",
+        live_telemetry: "Telemetri Perangkat Keras",
+        exec_view: "Tampilan Eksekutif",
+        eng_view: "Tampilan Teknisi",
+        status_online: "Online",
+        status_fault: "Gangguan",
+        grid_export: "Ekspor Grid",
+        grid_import: "Impor Grid"
+    }
+};

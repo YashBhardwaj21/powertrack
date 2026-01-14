@@ -9,6 +9,8 @@ interface DashboardContextType {
     lastUpdated: string;
     isConnected: boolean;
     error: string | null;
+    locale: 'en' | 'id';
+    setLocale: (l: 'en' | 'id') => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -19,6 +21,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [lastUpdated, setLastUpdated] = useState<string>('');
     const [isConnected, setIsConnected] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [locale, setLocale] = useState<'en' | 'id'>('en');
 
     useEffect(() => {
         const init = async () => {
@@ -57,7 +60,7 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({ children 
     }, []);
 
     return (
-        <DashboardContext.Provider value={{ data, loading, lastUpdated, isConnected, error }}>
+        <DashboardContext.Provider value={{ data, loading, lastUpdated, isConnected, error, locale, setLocale }}>
             {children}
         </DashboardContext.Provider>
     );

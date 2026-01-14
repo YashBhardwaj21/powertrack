@@ -1,12 +1,18 @@
+
 import React from 'react';
 import { DashboardData } from '../types';
 import { Zap, DollarSign, Leaf, Activity } from 'lucide-react';
+import { useDashboard } from '../context/DashboardContext';
+import { TRANSLATIONS } from '../constants';
 
 interface StatsOverviewProps {
     data: DashboardData;
 }
 
 export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
+    const { locale } = useDashboard();
+    const t = TRANSLATIONS[locale];
+
     const totalPower = data.current_data.reduce((sum, d) => sum + d.ac_power_kw, 0);
     const totalEnergy = data.current_data.reduce((sum, d) => sum + d.daily_energy_kwh, 0);
     const totalSavings = totalEnergy * data.metadata.electricity_rate_idr;
@@ -14,7 +20,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
 
     const cards = [
         {
-            label: "Total Power Generated",
+            label: t.total_power,
             value: `${totalPower.toFixed(1)} kW`,
             icon: Zap,
             color: "text-yellow-500",
@@ -22,7 +28,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
             border: "border-yellow-200"
         },
         {
-            label: "Daily Energy Production",
+            label: t.daily_energy,
             value: `${totalEnergy.toFixed(1)} kWh`,
             icon: Activity,
             color: "text-blue-500",
@@ -30,7 +36,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
             border: "border-blue-200"
         },
         {
-            label: "Est. Daily Savings",
+            label: t.savings,
             value: `Rp ${(totalSavings / 1000).toFixed(0)}k`,
             icon: DollarSign,
             color: "text-green-600",
@@ -38,7 +44,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({ data }) => {
             border: "border-green-200"
         },
         {
-            label: "CO₂ Avoided Today",
+            label: t.co2,
             value: `${totalCO2.toFixed(1)} kg`,
             icon: Leaf,
             color: "text-emerald-500",

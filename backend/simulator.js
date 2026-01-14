@@ -1,9 +1,10 @@
+
 /**
- * PowerTrack Backend Simulator
+ * PowerTrack Backend Simulator (Defensible Physics V2)
  * 
  * 1. Connects to SQLite Database (creates power_track.db)
- * 2. Connects to MQTT Broker
- * 3. Runs Physics Simulation Loop (2s tick)
+ * 2. Connects to MQTT Broker (Supports Auth & TLS)
+ * 3. Runs Physics Simulation Loop (2s tick) with Seeded Determinism
  * 4. Publishes to MQTT topics: sites/{school_id}/telemetry
  * 5. Persists data to SQLite
  */
@@ -14,12 +15,21 @@ const fs = require('fs');
 const path = require('path');
 
 // --- Configuration ---
-const MQTT_BROKER_URL = process.env.MQTT_URL || 'mqtt://test.mosquitto.org'; // Public test broker for demo
+const MQTT_BROKER_URL = process.env.MQTT_URL || 'mqtt://test.mosquitto.org'; 
+const MQTT_OPTS = {
+    username: process.env.MQTT_USERNAME,
+    password: process.env.MQTT_PASSWORD,
+    // Add these if using self-signed certs in pilot
+    // ca: process.env.MQTT_CA ? [fs.readFileSync(process.env.MQTT_CA)] : undefined,
+    // checkServerIdentity: () => undefined 
+};
+
 const DB_PATH = path.join(__dirname, 'power_track.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
 
 // --- Physics Constants (Matched to Frontend) ---
 const SIMULATION_CONFIG = {
+    seed: 12345, // Deterministic Seed
     voltage_base: 230,
     voltage_variance: 10,
     temp_coeff: 0.004,
@@ -27,6 +37,16 @@ const SIMULATION_CONFIG = {
     ambient_temp_base: 28,
     inverter_efficiency: 0.95,
     irradiance_factors: { sunny: 0.95, partly_cloudy: 0.75, cloudy: 0.45, rainy: 0.15 }
+};
+
+// --- Deterministic RNG (LCG) ---
+let seed = SIMULATION_CONFIG.seed;
+const seededRandom = () => {
+    const a = 1664525;
+    const c = 1013904223;
+    const m = 4294967296; 
+    seed = (a * seed + c) % m;
+    return seed / m;
 };
 
 // --- School Configuration (Static Data) ---
@@ -53,11 +73,14 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 
 // Initialize Schema
 const initDb = () => {
+    if(!fs.existsSync(SCHEMA_PATH)) {
+        console.warn("Schema file missing, skipping init");
+        return;
+    }
     const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
     db.exec(schema, (err) => {
         if (err) console.error("Schema Init Error:", err);
         else {
-            console.log("Database schema initialized.");
             // Seed schools if empty
             SCHOOLS.forEach(s => {
                 db.run(
@@ -72,10 +95,10 @@ const initDb = () => {
 initDb();
 
 // 2. Setup MQTT
-const mqttClient = mqtt.connect(MQTT_BROKER_URL);
+const mqttClient = mqtt.connect(MQTT_BROKER_URL, MQTT_OPTS);
 
 mqttClient.on('connect', () => {
-    console.log(`Connected to MQTT Broker at ${MQTT_BROKER_URL}`);
+    console.log(`Connected to MQTT Broker at ${MQTT_BROKER_URL} [Auth: ${process.env.MQTT_USERNAME ? 'Yes' : 'No'}]`);
 });
 
 mqttClient.on('error', (err) => {
@@ -102,18 +125,19 @@ const calculatePhysics = (school) => {
     const now = Date.now();
     
     // 1. Weather Dynamics (Markov Chain-ish)
-    if (Math.random() < 0.05) {
+    if (seededRandom() < 0.05) {
         const weathers = ['sunny', 'partly_cloudy', 'cloudy', 'rainy'];
-        state.weather = weathers[Math.floor(Math.random() * weathers.length)];
+        state.weather = weathers[Math.floor(seededRandom() * weathers.length)];
     }
 
     // 2. Fault Injection
-    if (state.fault === 'none' && Math.random() < 0.001) state.fault = 'underperf';
-    else if (state.fault !== 'none' && Math.random() < 0.1) state.fault = 'none'; // Auto-heal
+    // Fixed: Reduced from 0.001 to 0.00002 to match frontend constants.ts
+    if (state.fault === 'none' && seededRandom() < 0.00002) state.fault = 'underperf';
+    else if (state.fault !== 'none' && seededRandom() < 0.1) state.fault = 'none'; // Auto-heal
 
     // 3. Solar Calculations
     let irrFactor = SIMULATION_CONFIG.irradiance_factors[state.weather];
-    irrFactor += (Math.random() - 0.5) * 0.1; // Noise
+    irrFactor += (seededRandom() - 0.5) * 0.1; // Noise
     
     if (state.fault !== 'none') irrFactor *= 0.5; // Fault penalty
 
@@ -126,12 +150,12 @@ const calculatePhysics = (school) => {
     const acPower = Math.max(0, dcPower * SIMULATION_CONFIG.inverter_efficiency);
 
     // Grid Physics
-    const voltage = SIMULATION_CONFIG.voltage_base + (Math.random() - 0.5) * SIMULATION_CONFIG.voltage_variance;
+    const voltage = SIMULATION_CONFIG.voltage_base + (seededRandom() - 0.5) * SIMULATION_CONFIG.voltage_variance;
     const current = voltage > 0 ? (acPower * 1000) / voltage : 0;
 
     // Load & Grid Flow
     const baseLoad = school.capacity * 0.3;
-    const loadKw = Math.max(0.2, baseLoad + (Math.random() - 0.5));
+    const loadKw = Math.max(0.2, baseLoad + (seededRandom() - 0.5));
     let gridExport = 0;
     let gridImport = 0;
 
@@ -141,22 +165,30 @@ const calculatePhysics = (school) => {
         gridImport = loadKw - acPower;
     }
 
-    // Energy Accumulation
+    // Energy Accumulation (W * dt)
     const hoursSinceLast = (now - state.last_tick) / (1000 * 3600);
     state.daily_energy += acPower * hoursSinceLast;
     state.total_energy += acPower * hoursSinceLast;
     state.last_tick = now;
 
+    // 4. Modbus Mapping Simulation
+    // Although we send JSON, we structure keys to remind hardware teams of the register map
     return {
         school_id: school.id,
         timestamp: new Date().toISOString(),
-        ac_power_kw: parseFloat(acPower.toFixed(3)),
-        daily_energy_kwh: parseFloat(state.daily_energy.toFixed(3)),
-        total_energy_kwh: parseFloat(state.total_energy.toFixed(2)),
+        
+        // Primary Registers (SunSpec 40000 range)
+        ac_power_kw: parseFloat(acPower.toFixed(3)), // Reg 40083
+        ac_voltage: parseFloat(voltage.toFixed(1)),  // Reg 40071
+        ac_current: parseFloat(current.toFixed(1)),  // Reg 40069
+        total_energy_kwh: parseFloat(state.total_energy.toFixed(2)), // Reg 40093
+        
+        // Environmental Registers (SunSpec 40100 range)
         irradiance_wm2: Math.floor(irradiance),
-        panel_temp_c: parseFloat(cellTemp.toFixed(1)),
-        ac_voltage: parseFloat(voltage.toFixed(1)),
-        ac_current: parseFloat(current.toFixed(1)),
+        panel_temp_c: parseFloat(cellTemp.toFixed(1)), // Reg 40107
+        
+        // Calculated/Aggregated (Edge Compute)
+        daily_energy_kwh: parseFloat(state.daily_energy.toFixed(3)),
         grid_export_kw: parseFloat(gridExport.toFixed(2)),
         grid_import_kw: parseFloat(gridImport.toFixed(2)),
         weather_condition: state.weather,
@@ -178,32 +210,33 @@ setInterval(() => {
             mqttClient.publish(topic, JSON.stringify(data), { qos: 1 });
         }
 
-        // 2. Insert into DB
-        const stmt = db.prepare(`
-            INSERT INTO telemetry (
-                school_id, timestamp, ac_power_kw, daily_energy_kwh, total_energy_kwh,
-                irradiance_wm2, panel_temp_c, ac_voltage, ac_current, 
-                grid_export_kw, grid_import_kw, weather_condition, fault_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        
-        stmt.run([
-            data.school_id, data.timestamp, data.ac_power_kw, data.daily_energy_kwh, data.total_energy_kwh,
-            data.irradiance_wm2, data.panel_temp_c, data.ac_voltage, data.ac_current,
-            data.grid_export_kw, data.grid_import_kw, data.weather_condition, data.fault_status
-        ], (err) => {
-            if (err) console.error("DB Insert Error:", err.message);
-        });
-        stmt.finalize();
+        // 2. Insert into DB (Safety wrapper in case DB is locked)
+        try {
+            const stmt = db.prepare(`
+                INSERT INTO telemetry (
+                    school_id, timestamp, ac_power_kw, daily_energy_kwh, total_energy_kwh,
+                    irradiance_wm2, panel_temp_c, ac_voltage, ac_current, 
+                    grid_export_kw, grid_import_kw, weather_condition, fault_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            
+            stmt.run([
+                data.school_id, data.timestamp, data.ac_power_kw, data.daily_energy_kwh, data.total_energy_kwh,
+                data.irradiance_wm2, data.panel_temp_c, data.ac_voltage, data.ac_current,
+                data.grid_export_kw, data.grid_import_kw, data.weather_condition, data.fault_status
+            ], (err) => {
+                if (err) console.error("DB Insert Error:", err.message);
+            });
+            stmt.finalize();
+        } catch (e) {
+            console.error("DB Error:", e.message);
+        }
 
-        // 3. Handle Alerts (Simplified)
+        // 3. Handle Alerts
         if (data.fault_status !== 'none') {
             const alertId = `AL_${school.id}_${Date.now()}`;
-            db.run(
-                `INSERT INTO alerts (id, school_id, type, severity, message, timestamp) VALUES (?, ?, ?, ?, ?, ?)`,
-                [alertId, school.id, data.fault_status, 'warning', 'System performance degradation detected', data.timestamp],
-                (err) => { if(!err && mqttClient.connected) mqttClient.publish(`sites/${school.id}/alerts`, JSON.stringify({id: alertId, type: data.fault_status})); }
-            );
+            // Simple suppression logic would go here
+            if (mqttClient.connected) mqttClient.publish(`sites/${school.id}/alerts`, JSON.stringify({id: alertId, type: data.fault_status})); 
         }
     });
     

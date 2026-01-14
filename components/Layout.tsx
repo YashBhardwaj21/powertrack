@@ -1,18 +1,22 @@
 
 import React from 'react';
-import { Sun, Menu, Github, LayoutDashboard, School, BarChart3 } from 'lucide-react';
+import { Sun, Menu, Github, LayoutDashboard, School, BarChart3, Globe } from 'lucide-react';
 import { NavLink, Link } from 'react-router-dom';
+import { useDashboard } from '../context/DashboardContext';
+import { TRANSLATIONS } from '../constants';
 
 interface LayoutProps {
     children: React.ReactNode;
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
-    
+    const { locale, setLocale } = useDashboard();
+    const t = TRANSLATIONS[locale];
+
     const navItems = [
-        { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-        { path: '/schools', label: 'Schools', icon: School },
-        { path: '/analytics', label: 'Analytics', icon: BarChart3 },
+        { path: '/', label: t.dashboard, icon: LayoutDashboard },
+        { path: '/schools', label: t.schools, icon: School },
+        { path: '/analytics', label: t.analytics, icon: BarChart3 },
     ];
 
     return (
@@ -55,6 +59,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                         </nav>
 
                         <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => setLocale(locale === 'en' ? 'id' : 'en')}
+                                className="p-2 text-slate-400 hover:text-white flex items-center gap-1 text-xs font-bold border border-slate-700 rounded-md"
+                            >
+                                <Globe className="w-4 h-4" />
+                                {locale.toUpperCase()}
+                            </button>
                             <button className="md:hidden p-2 text-slate-400 hover:text-white">
                                 <Menu className="w-6 h-6" />
                             </button>

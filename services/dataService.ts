@@ -1,6 +1,6 @@
 
 import { DashboardData, Telemetry, Alert, CommunityStats } from '../types';
-import { initializeSimulation, tickSimulation } from './dataGenerator';
+import { initializeSimulation, tickSimulation, setSimulationState } from './dataGenerator';
 import { getDashboardState, saveDashboardState } from './db';
 
 // In-memory simulation state
@@ -16,13 +16,14 @@ export const fetchDashboardData = async (): Promise<DashboardData> => {
         
         if (storedData) {
             console.log("Loaded data from persistence layer.");
-            // Rehydrate timestamps to Dates if necessary (JSON serialization usually strings them)
-            // For this app, strings are fine as per types interface
             appData = storedData;
+            // SYNC the generator state with the loaded data
+            if (appData.current_data) {
+                setSimulationState(appData.current_data);
+            }
         } else {
             console.log("No persisted data found. Generating fresh simulation...");
             appData = initializeSimulation();
-            // Save immediately so reload works
             await saveDashboardState(appData);
         }
     } catch (err) {
@@ -60,6 +61,6 @@ export const subscribeToTelemetry = (
 
     return () => {
         clearInterval(interval);
-        if (saveInterval) clearInterval(saveInterval);
+        // Do not clear saveInterval here as it's shared across the session
     };
 };

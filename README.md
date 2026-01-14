@@ -2,6 +2,9 @@
 
 **PowerTrack** is a high-fidelity Digital Twin and operational dashboard designed for community-scale solar management across the West Java school network. It provides school administrators, engineers, and government officials with real-time insights into energy production, financial ROI, and environmental impact.
 
+![Dashboard Preview](https://img.shields.io/badge/Status-Operational-success)
+![Version](https://img.shields.io/badge/Version-2.1.0-blue)
+
 ## 🚀 Key Features
 
 ### 1. Executive Operations Center
@@ -34,16 +37,17 @@
 ## 📥 Installation & Setup
 
 ### 1. Frontend Setup
-bash
+```bash
 # Install dependencies
 npm install
 
 # Start the development server
 npm run dev
-2. Backend Simulator Setup
+```
+
+### 2. Backend Simulator Setup
 The backend simulates physical solar hardware. It must be running to receive live MQTT packets.
-code
-Bash
+```bash
 # Navigate to backend folder
 cd backend
 
@@ -52,16 +56,23 @@ npm install
 
 # Start the physics simulator
 node simulator.js
+```
 
-🧬 Data Generation Methodology
-PowerTrack uses a Deterministic Physics Engine to generate data. Unlike static mockups, the data is calculated every 2 seconds using:
-Linear Congruential Generator (LCG): Ensures that "random" weather events are reproducible across different demo sessions.
+## 🧬 Data Generation Methodology
 
-PV Physics Model:
-Irradiance: Scaled by weather conditions (Sunny, Cloudy, Rainy).
-Temp Loss: Calculated using the NOCT (Nominal Operating Cell Temperature) formula.
-Load Profiling: Schools follow a dual-peak consumption curve (morning classes and afternoon labs).
+PowerTrack uses a **Deterministic Physics Engine** to generate data. Unlike static mockups, the data is calculated every 2 seconds using:
 
-📊 Analytics Deep Dive
-Model Accuracy: The system tracks RMSE and MAPE for its internal prediction model.
-Storage Optimization: Demonstrates a data retention policy where high-frequency raw data (5s) is downsampled into 15-minute historical rollups for long-term storage efficiency.
+1.  **Linear Congruential Generator (LCG):** Ensures that "random" weather events are reproducible across different demo sessions.
+2.  **PV Physics Model:** 
+    *   $P_{ac} = Capacity \times Irradiance \times TempLoss \times \eta_{inverter}$
+    *   **Irradiance:** Scaled by weather conditions (Sunny, Cloudy, Rainy).
+    *   **Temp Loss:** Calculated using the NOCT (Nominal Operating Cell Temperature) formula.
+3.  **Load Profiling:** Schools follow a dual-peak consumption curve (morning classes and afternoon labs).
+
+## 📊 Analytics Deep Dive
+
+*   **Model Accuracy:** The system tracks **RMSE** and **MAPE** for its internal prediction model.
+*   **Storage Optimization:** Demonstrates a data retention policy where high-frequency raw data (5s) is downsampled into 15-minute historical rollups for long-term storage efficiency.
+
+---
+© 2024 PowerTrack Platform - Empowering Sustainable Education in West Java.
